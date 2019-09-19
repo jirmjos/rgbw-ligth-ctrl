@@ -73,6 +73,7 @@ uint8_t geffect = INSTANT_CHANGE;
 uint8_t gwhite = 0;
 uint8_t gbrightness = 0;
 bool gflash = false;
+bool somethingChanged = false;
 
 /*------------------------------------------------------------------------------------*/
 /* Global Variables                                                                   */
@@ -200,6 +201,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
   mqttClient.publish(CONFIG_MQTT_TOPIC_STATE, buffer, true);
 
+  somethingChanged = true;
   saveToEEPROM();
 }
 
@@ -229,9 +231,34 @@ void restoreFromEEPROM() {
   displayGlobalParams();
 }
 
+void turnLightOff() {
+  analogWrite(GPIO_RED, 0);
+  analogWrite(GPIO_GREEN, 0);
+  analogWrite(GPIO_BLUE, 0);
+  analogWrite(GPIO_WHITE, 0);
+}
+
+void setLightColor() {
+  if (gstate == STATE_ON) {
+    analogWrite(GPIO_RED, map(gred, 0, 255, 0, gbrightness));
+    analogWrite(GPIO_GREEN, map(ggreen, 0, 255, 0, gbrightness));
+    analogWrite(GPIO_BLUE, map(gblue, 0, 255, 0, gbrightness));
+    analogWrite(GPIO_WHITE, map(gwhite, 0, 255, 0, gbrightness));
+  } else {
+    turnLightOff();
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   EEPROM.begin(512);
+
+  pinMode(GPIO_RED, OUTPUT);
+  pinMode(GPIO_GREEN, OUTPUT);
+  pinMode(GPIO_BLUE, OUTPUT);
+  pinMode(GPIO_WHITE, OUTPUT);
+
+  turnLightOff();
 
   // Instantiate and setup WiFiManager
   // wifiManager.resetSettings(); Uncomment to reset wifi settings
@@ -274,13 +301,10 @@ void setup() {
   mqttClient.setCallback(mqttCallback);
 
   restoreFromEEPROM();
-  pinMode(GPIO_RED, OUTPUT);
-  pinMode(GPIO_GREEN, OUTPUT);
-  pinMode(GPIO_BLUE, OUTPUT);
-  pinMode(GPIO_WHITE, OUTPUT);
 
   analogWriteRange(255);
 
+  setLightColor();
 }
 
 void loop() {
@@ -293,4 +317,8 @@ void loop() {
   }
   mqttClient.loop();
 
+  if (somethingChanged == true) {
+    setLightColor();
+    somethingChanged = false;
+  }
 }

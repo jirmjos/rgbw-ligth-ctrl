@@ -53,6 +53,9 @@ const char *STR_CROSS_FADE_SLOW = "colorfade_slow";
 const char *STR_CROSS_FADE_FAST = "colorfade_fast";
 const char *STR_FLASH = "flash";
 const char *STR_CHRISTMAS = "christmas";
+const uint16_t DEFAULT_FLASHING_ON_TIME_MS = 1000;
+const uint16_t DEFAULT_FLASHING_OFF_TIME_MS = 1000;
+const uint8_t DEFAULT_FLASHING_COUNT = 10;
 
 /*------------------------------------------------------------------------------------*/
 /* State Definitions                                                                */
@@ -73,6 +76,9 @@ uint8_t geffect = INSTANT_CHANGE;
 uint8_t gwhite = 0;
 uint8_t gbrightness = 0;
 bool gflash = false;
+uint8_t gFlashPhase = STATE_OFF;
+uint8_t flashCount = 0;
+unsigned long flashStartTime = 0;
 bool somethingChanged = false;
 
 /*------------------------------------------------------------------------------------*/
@@ -188,7 +194,10 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       geffect = tEffect;
       gflash = false;
     } else {
+      Serial.println("Start Flashig...");
       gflash = true;
+      flashCount = DEFAULT_FLASHING_COUNT;
+      flashStartTime = millis();
     }
   }
   if (doc.containsKey("white_value")) {
@@ -317,7 +326,24 @@ void loop() {
   }
   mqttClient.loop();
 
-  if (somethingChanged == true) {
+  if (gflash == true) {
+    if (flashCount == 0) {
+      gflash =false;
+      somethingChanged = true;
+      Serial.println("Stop flashing...");
+    } else {
+      if (gFlashPhase == STATE_OFF && (millis() - flashStartTime) >= DEFAULT_FLASHING_OFF_TIME_MS) {
+        gFlashPhase = STATE_ON;
+        turnLightOff();
+        flashStartTime = millis();
+      } else if ((millis() - flashStartTime) >= DEFAULT_FLASHING_ON_TIME_MS) {
+        gFlashPhase = STATE_OFF;
+        setLightColor();
+        flashCount--;
+        flashStartTime = millis();
+      }
+    }
+  } else if (somethingChanged == true) {
     setLightColor();
     somethingChanged = false;
   }

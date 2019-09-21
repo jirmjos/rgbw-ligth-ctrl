@@ -48,11 +48,13 @@ const uint8_t CROSS_FADE_SLOW = 1; // TODO
 const uint8_t CROSS_FADE_FAST = 2; // TODO
 const uint8_t FLASH = 3; // Non persistent effect
 const uint8_t CHRISTMAS = 4; // TODO
+const uint8_t PURE_WHITE = 5;
 const char *STR_INSTANT_CHANGE = "instant";
 const char *STR_CROSS_FADE_SLOW = "colorfade_slow";
 const char *STR_CROSS_FADE_FAST = "colorfade_fast";
 const char *STR_FLASH = "flash";
 const char *STR_CHRISTMAS = "christmas";
+const char *STR_PURE_WHITE = "pure_white";
 const uint16_t DEFAULT_FLASHING_ON_TIME_MS = 1000;
 const uint16_t DEFAULT_FLASHING_OFF_TIME_MS = 1000;
 const uint8_t DEFAULT_FLASHING_COUNT = 10;
@@ -149,6 +151,22 @@ void saveToEEPROM() {
   EEPROM.commit();
   Serial.println("Finished Saving Data to EEPROM");
 }
+
+// Supported MQTT Payload
+// All fields are optional.
+// {
+//   "state": "ON" // or "OFF"
+//   "color": {
+//     "r": 255 // Red Color 0-255
+//     "g": 255 // Green Color 0-255
+//     "b": 255 // Blue Color 0-255
+//   }
+//   "brightness": 255 // 0-255
+//   "white_value": 255 // White Color for RGBW LEDs 0-255
+//   "effect": "instant" // Light effect instant|colorfade_slow|colorfade_fast|flash|christmas|pure_white
+//   "flashes": 10 // Flashes count
+// }
+// (*) flash is not a persistent effect
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message arrived [");

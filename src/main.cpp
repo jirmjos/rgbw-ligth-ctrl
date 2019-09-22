@@ -43,13 +43,13 @@ const uint8_t GPIO_UNUSED_16 = 16;         // ESP8266 NodeMCU D0
 /*------------------------------------------------------------------------------------*/
 /* Effects Definitions                                                                */
 /*------------------------------------------------------------------------------------*/
-const uint8_t INSTANT_CHANGE = 0;
+const uint8_t COLORFUL = 0;
 const uint8_t CROSS_FADE_SLOW = 1; // TODO
 const uint8_t CROSS_FADE_FAST = 2; // TODO
 const uint8_t FLASH = 3; // Non persistent effect
 const uint8_t CHRISTMAS = 4; // TODO
 const uint8_t PURE_WHITE = 5;
-const char *STR_INSTANT_CHANGE = "instant";
+const char *STR_COLORFUL = "colorful";
 const char *STR_CROSS_FADE_SLOW = "colorfade_slow";
 const char *STR_CROSS_FADE_FAST = "colorfade_fast";
 const char *STR_FLASH = "flash";
@@ -74,7 +74,7 @@ uint8_t gstate = STATE_OFF;
 uint8_t gred = 0;
 uint8_t ggreen = 0;
 uint8_t gblue = 0;
-uint8_t geffect = INSTANT_CHANGE;
+uint8_t geffect = COLORFUL;
 uint8_t gwhite = 0;
 uint8_t gbrightness = 0;
 bool gflash = false;
@@ -123,18 +123,23 @@ void reconnect() {
 }
 
 uint8_t strEffectToInt(const char *effect) {
-  if (strcmp(effect, STR_INSTANT_CHANGE) == 0) {
-    return INSTANT_CHANGE;
+  Serial.printf("Effect (STR): %s\n", effect);
+  uint8_t intEffect = COLORFUL;
+  if (strcmp(effect, STR_COLORFUL) == 0) {
+    intEffect = COLORFUL;
   } else if (strcmp(effect, STR_CROSS_FADE_SLOW) == 0) {
-    return CROSS_FADE_SLOW;
+    intEffect = CROSS_FADE_SLOW;
   } else if (strcmp(effect, STR_CROSS_FADE_FAST) == 0) {
-    return CROSS_FADE_FAST;
+    intEffect = CROSS_FADE_FAST;
   } else if (strcmp(effect, STR_CHRISTMAS) == 0) {
-    return CHRISTMAS;
+    intEffect = CHRISTMAS;
   } else if (strcmp(effect, STR_FLASH) == 0) {
-    return FLASH;
+    intEffect = FLASH;
+  } else if (strcmp(effect, STR_PURE_WHITE) == 0) {
+    intEffect = PURE_WHITE;
   }
-  return INSTANT_CHANGE;
+  Serial.printf("Effect (INT) %d\n", intEffect);
+  return intEffect;
 }
 
 void saveToEEPROM() {
@@ -163,7 +168,7 @@ void saveToEEPROM() {
 //   }
 //   "brightness": 255 // 0-255
 //   "white_value": 255 // White Color for RGBW LEDs 0-255
-//   "effect": "instant" // Light effect instant|colorfade_slow|colorfade_fast|flash|christmas|pure_white
+//   "effect": "colorful" // Light effect colorful|colorfade_slow|colorfade_fast|flash|christmas|pure_white
 //   "flashes": 10 // Flashes count
 // }
 // (*) flash is not a persistent effect
@@ -195,7 +200,26 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     Serial.printf("State = %s\n", state);
     gstate = strcmp(state, STR_STATE_ON) == 0 ? STATE_ON : STATE_OFF;
   }
-  if (doc.containsKey("color")) {
+  if (effect != nullptr) {
+    Serial.printf("Effect = %s\n", effect);
+    uint8_t tEffect = strEffectToInt(effect);
+    if (tEffect != FLASH) {
+      geffect = tEffect;
+      gflash = false;
+    }
+    if (geffect == PURE_WHITE) {
+      geffect = tEffect;
+      gred = 0;
+      ggreen = 0;
+      gblue = 0;
+    } else if (geffect == FLASH) {
+      Serial.println("Start Flashig...");
+      gflash = true;
+      flashCount = DEFAULT_FLASHING_COUNT;
+      flashStartTime = millis();
+    }
+  }
+  if (doc.containsKey("color") && geffect != PURE_WHITE) {
     Serial.printf("Red = %d, Green = %d, Blue = %d\n", red, green, blue);
     gred = red;
     ggreen = green;
@@ -204,19 +228,6 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   if (doc.containsKey("brightness")) {
     Serial.printf("Brightness = %d\n", brightness);
     gbrightness = brightness;
-  }
-  if (effect != nullptr) {
-    Serial.printf("Effect = %s\n", effect);
-    uint8_t tEffect = strEffectToInt(effect);
-    if (tEffect != FLASH) {
-      geffect = tEffect;
-      gflash = false;
-    } else {
-      Serial.println("Start Flashig...");
-      gflash = true;
-      flashCount = DEFAULT_FLASHING_COUNT;
-      flashStartTime = millis();
-    }
   }
   if (doc.containsKey("white_value")) {
     Serial.printf("White = %d\n", white);
@@ -267,6 +278,8 @@ void turnLightOff() {
 
 void setLightColor() {
   if (gstate == STATE_ON) {
+    Serial.printf("Setting colors to r: %d, g: %d, b: %d, w: %d\n", gred, ggreen, gblue, gwhite);
+    Serial.printf("Setting brigthness to %d\n", gbrightness);
     analogWrite(GPIO_RED, map(gred, 0, 255, 0, gbrightness));
     analogWrite(GPIO_GREEN, map(ggreen, 0, 255, 0, gbrightness));
     analogWrite(GPIO_BLUE, map(gblue, 0, 255, 0, gbrightness));

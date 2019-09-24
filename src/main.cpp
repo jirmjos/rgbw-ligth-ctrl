@@ -60,12 +60,45 @@ const uint16_t DEFAULT_FLASHING_OFF_TIME_MS = 1000;
 const uint8_t DEFAULT_FLASHING_COUNT = 10;
 
 /*------------------------------------------------------------------------------------*/
-/* State Definitions                                                                */
+/* State Definitions                                                                  */
 /*------------------------------------------------------------------------------------*/
 const uint8_t STATE_OFF = 0;
 const uint8_t STATE_ON = 1;
 const char *STR_STATE_ON = "ON";
 const char *STR_STATE_OFF = "OFF";
+
+/*------------------------------------------------------------------------------------*/
+/* Flashing cycles                                                                    */
+/*------------------------------------------------------------------------------------*/
+// Flashing with current set colors
+// Cycle: r, g, b, w, t.
+// -1 means current color
+// t time in miliseconds
+const int16_t USE_CURRENT_SET_COLORS = -1;
+const int8_t FLASH_FOREVER = -1;
+const uint8_t CYCLE_COLUMNS = 5;
+const int16_t CYCLE_FLASH[][CYCLE_COLUMNS] = {
+  {USE_CURRENT_SET_COLORS, USE_CURRENT_SET_COLORS, USE_CURRENT_SET_COLORS, USE_CURRENT_SET_COLORS, 1000},
+  {0, 0, 0, 0, 1000}
+};
+
+const int16_t CYCLE_CHRISTMAS[][CYCLE_COLUMNS] = {
+  {255, 0, 0, 0, 1000},
+  {0, 255, 0, 0, 1000}
+};
+
+const int16_t CYCLE_FOURTH_OF_JULY[][CYCLE_COLUMNS] = {
+  {255, 0, 0, 0, 1000},
+  {0, 0, 0, 255, 1000},
+  {0, 0, 255, 0, 1000}
+};
+
+typedef struct {
+  uint8_t current_step = 0;
+  uint8_t total_steps = 0;
+  int8_t count; // -1 indefinetly
+  int16_t **cycle;
+} flash_cycle;
 
 /*------------------------------------------------------------------------------------*/
 /* Current parameter values. Set to default until we read from EEPROM                 */
@@ -82,6 +115,7 @@ uint8_t gFlashPhase = STATE_OFF;
 uint8_t flashCount = 0;
 unsigned long flashStartTime = 0;
 bool somethingChanged = false;
+flash_cycle gflash_cycle;
 
 /*------------------------------------------------------------------------------------*/
 /* Global Variables                                                                   */
@@ -157,6 +191,22 @@ void saveToEEPROM() {
   Serial.println("Finished Saving Data to EEPROM");
 }
 
+void allocateCycle(const int16_t cycle[][CYCLE_COLUMNS], uint8_t rows) {
+  Serial.printf("DEBUG: rows= %d\n", rows);
+  gflash_cycle.cycle = new int16_t *[rows];
+  for (uint8_t i = 0; i < rows; i++) {
+    Serial.printf("DEBUG: row= %d", i);
+    gflash_cycle.cycle[i] = new int16_t[CYCLE_COLUMNS];
+    memcpy(gflash_cycle.cycle[i], cycle[i], sizeof(int16_t[CYCLE_COLUMNS]));
+  }
+}
+
+void deallocateCycle(uint8_t rows) {
+  for (uint8_t i = 0; i < rows; i++) {
+    delete gflash_cycle.cycle[i];
+  }
+  delete gflash_cycle.cycle;
+}
 // Supported MQTT Payload
 // All fields are optional.
 // {
@@ -205,17 +255,23 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     uint8_t tEffect = strEffectToInt(effect);
     if (tEffect != FLASH) {
       geffect = tEffect;
-      gflash = false;
+      if (gflash == true) {
+        deallocateCycle(gflash_cycle.total_steps);
+        gflash = false;
+      }
     }
     if (geffect == PURE_WHITE) {
       geffect = tEffect;
       gred = 0;
       ggreen = 0;
       gblue = 0;
-    } else if (geffect == FLASH) {
-      Serial.println("Start Flashig...");
+    } else if (tEffect == FLASH) {
+      Serial.println("Start Flashing...");
       gflash = true;
-      flashCount = DEFAULT_FLASHING_COUNT;
+      gflash_cycle.total_steps = sizeof(CYCLE_FLASH) / sizeof(CYCLE_FLASH[0]);
+      allocateCycle(CYCLE_FLASH, gflash_cycle.total_steps);
+      gflash_cycle.count = DEFAULT_FLASHING_COUNT;
+      Serial.printf("DEBUG: cycle[0][1] = %d, cycle[1][0] = %d", gflash_cycle.cycle[0][1], gflash_cycle.cycle[1][0]);
       flashStartTime = millis();
     }
   }
@@ -276,17 +332,21 @@ void turnLightOff() {
   analogWrite(GPIO_WHITE, 0);
 }
 
-void setLightColor() {
+void setLightColor(uint8_t red, uint8_t green, uint8_t blue, uint8_t white, uint8_t brightness) {
   if (gstate == STATE_ON) {
-    Serial.printf("Setting colors to r: %d, g: %d, b: %d, w: %d\n", gred, ggreen, gblue, gwhite);
-    Serial.printf("Setting brigthness to %d\n", gbrightness);
-    analogWrite(GPIO_RED, map(gred, 0, 255, 0, gbrightness));
-    analogWrite(GPIO_GREEN, map(ggreen, 0, 255, 0, gbrightness));
-    analogWrite(GPIO_BLUE, map(gblue, 0, 255, 0, gbrightness));
-    analogWrite(GPIO_WHITE, map(gwhite, 0, 255, 0, gbrightness));
+    Serial.printf("Setting colors to r: %d, g: %d, b: %d, w: %d\n", red, green, blue, white);
+    Serial.printf("Setting brigthness to %d\n", brightness);
+    analogWrite(GPIO_RED, map(red, 0, 255, 0, brightness));
+    analogWrite(GPIO_GREEN, map(green, 0, 255, 0, brightness));
+    analogWrite(GPIO_BLUE, map(blue, 0, 255, 0, brightness));
+    analogWrite(GPIO_WHITE, map(white, 0, 255, 0, brightness));
   } else {
     turnLightOff();
   }
+}
+
+void setLightColor() {
+  setLightColor(gred, ggreen, gblue, gwhite, gbrightness);
 }
 
 void setup() {
@@ -358,20 +418,26 @@ void loop() {
   mqttClient.loop();
 
   if (gflash == true) {
-    if (flashCount == 0) {
+    if (gflash_cycle.count == 0) {
+      deallocateCycle(gflash_cycle.total_steps);
       gflash =false;
       somethingChanged = true;
       Serial.println("Stop flashing...");
     } else {
-      if (gFlashPhase == STATE_OFF && (millis() - flashStartTime) >= DEFAULT_FLASHING_OFF_TIME_MS) {
-        gFlashPhase = STATE_ON;
-        turnLightOff();
+      if ((int16_t)(millis() - flashStartTime) >= gflash_cycle.cycle[gflash_cycle.current_step][4]) {
+        int16_t red = gflash_cycle.cycle[gflash_cycle.current_step][0] == USE_CURRENT_SET_COLORS ? gred : gflash_cycle.cycle[gflash_cycle.current_step][0];
+        int16_t green = gflash_cycle.cycle[gflash_cycle.current_step][1] == USE_CURRENT_SET_COLORS ? ggreen : gflash_cycle.cycle[gflash_cycle.current_step][1];
+        int16_t blue = gflash_cycle.cycle[gflash_cycle.current_step][2] == USE_CURRENT_SET_COLORS ? gblue : gflash_cycle.cycle[gflash_cycle.current_step][2];
+        int16_t white = gflash_cycle.cycle[gflash_cycle.current_step][3] == USE_CURRENT_SET_COLORS ? gwhite : gflash_cycle.cycle[gflash_cycle.current_step][3];
+        setLightColor(red, green, blue, white, gbrightness);
+        Serial.printf("DEBUG: current step= %d, total_steps= %d\n", gflash_cycle.current_step, gflash_cycle.total_steps);
+        if (++gflash_cycle.current_step == gflash_cycle.total_steps) {
+          gflash_cycle.current_step = 0;
+        }
         flashStartTime = millis();
-      } else if ((millis() - flashStartTime) >= DEFAULT_FLASHING_ON_TIME_MS) {
-        gFlashPhase = STATE_OFF;
-        setLightColor();
-        flashCount--;
-        flashStartTime = millis();
+        if (gflash_cycle.count != FLASH_FOREVER) {
+          gflash_cycle.count--;
+        }
       }
     }
   } else if (somethingChanged == true) {

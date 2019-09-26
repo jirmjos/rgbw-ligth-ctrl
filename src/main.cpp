@@ -43,18 +43,40 @@ const uint8_t GPIO_UNUSED_16 = 16;         // ESP8266 NodeMCU D0
 /*------------------------------------------------------------------------------------*/
 /* Effects Definitions                                                                */
 /*------------------------------------------------------------------------------------*/
-const uint8_t COLORFUL = 0;
-const uint8_t CROSS_FADE_SLOW = 1; // TODO
-const uint8_t CROSS_FADE_FAST = 2; // TODO
-const uint8_t FLASH = 3; // Non persistent effect
-const uint8_t CHRISTMAS = 4; // TODO
-const uint8_t PURE_WHITE = 5;
+const uint8_t COLORFUL = 0;         // Flash: No, Persistent: Yes, Fade: No
+const uint8_t CROSS_FADE_SLOW = 1;  // Flash: No, Persistent: Yes, Fade: yes   TODO
+const uint8_t CROSS_FADE_FAST = 2;  // Flash: No, Persistent: Yes, Fade: Yes   TODO
+const uint8_t FLASH = 3;            // Flash: Yes, Persistent: No, Fade: No
+const uint8_t CHRISTMAS = 4;        // Flash: Yes, Persistent: Yes, Fade: No
+const uint8_t PURE_WHITE = 5;       // Flash: No, Persistent: Yes, Fade: No
+const uint8_t FOUR_OF_JULY = 6;     // Flash: Yes, Persistent: Yes, Fade: No
+const uint8_t MAX_EFFECTS = 7;
+
+typedef struct {
+  bool isFlashingEffect;
+  bool isPersistentEffect;
+  bool isFadingEffect;
+  int8_t falsh_count;
+} EffectParams;
+
+const EffectParams effectParams[] = {
+  {false, true, false, -1}, // COLORFUL
+  {false, true, true, -1},  // CROSS_FADE_SLOW
+  {false, true, true, -1},  // CROSS_FADE_FAST
+  {true, false, false, 10}, // FLASH
+  {true, true, false, -1},  // CHRISTMAS
+  {false, true, false, -1}, // PURE_WHITE
+  {true, true, false, -1}   // FOUR_OF_JULY
+};
+
 const char *STR_COLORFUL = "colorful";
 const char *STR_CROSS_FADE_SLOW = "colorfade_slow";
 const char *STR_CROSS_FADE_FAST = "colorfade_fast";
 const char *STR_FLASH = "flash";
 const char *STR_CHRISTMAS = "christmas";
 const char *STR_PURE_WHITE = "pure_white";
+const char *STR_FOUR_OF_JULY = "four_of_july";
+
 const uint16_t DEFAULT_FLASHING_ON_TIME_MS = 1000;
 const uint16_t DEFAULT_FLASHING_OFF_TIME_MS = 1000;
 const uint8_t DEFAULT_FLASHING_COUNT = 10;
@@ -87,7 +109,7 @@ const int16_t CYCLE_CHRISTMAS[][CYCLE_COLUMNS] = {
   {0, 255, 0, 0, 1000}
 };
 
-const int16_t CYCLE_FOURTH_OF_JULY[][CYCLE_COLUMNS] = {
+const int16_t CYCLE_FOUR_OF_JULY[][CYCLE_COLUMNS] = {
   {255, 0, 0, 0, 1000},
   {0, 0, 0, 255, 1000},
   {0, 0, 255, 0, 1000}
@@ -111,8 +133,6 @@ uint8_t geffect = COLORFUL;
 uint8_t gwhite = 0;
 uint8_t gbrightness = 0;
 bool gflash = false;
-uint8_t gFlashPhase = STATE_OFF;
-uint8_t flashCount = 0;
 unsigned long flashStartTime = 0;
 bool somethingChanged = false;
 flash_cycle gflash_cycle;
@@ -171,9 +191,32 @@ uint8_t strEffectToInt(const char *effect) {
     intEffect = FLASH;
   } else if (strcmp(effect, STR_PURE_WHITE) == 0) {
     intEffect = PURE_WHITE;
+  } else if (strcmp(effect, STR_FOUR_OF_JULY) == 0) {
+    intEffect = FOUR_OF_JULY;
   }
   Serial.printf("Effect (INT) %d\n", intEffect);
   return intEffect;
+}
+
+bool isFlashingEffect(uint8_t effect) {
+  if (effect >= MAX_EFFECTS) {
+    return false;
+  }
+  return effectParams[effect].isFlashingEffect;
+}
+
+bool isPersistentEffect(uint8_t effect) {
+  if (effect >= MAX_EFFECTS) {
+    return false;
+  }
+  return effectParams[effect].isPersistentEffect;
+}
+
+bool isFadingEffect(uint8_t effect) {
+  if (effect >= MAX_EFFECTS) {
+    return false;
+  }
+  return effectParams[effect].isFadingEffect;
 }
 
 void saveToEEPROM() {
@@ -199,6 +242,26 @@ void allocateCycle(const int16_t cycle[][CYCLE_COLUMNS], uint8_t rows) {
     gflash_cycle.cycle[i] = new int16_t[CYCLE_COLUMNS];
     memcpy(gflash_cycle.cycle[i], cycle[i], sizeof(int16_t[CYCLE_COLUMNS]));
   }
+}
+
+void buildEffect(uint8_t effect) {
+  uint16_t rows;
+  switch(effect) {
+    case CHRISTMAS:
+      rows = sizeof(CYCLE_CHRISTMAS) / sizeof(CYCLE_CHRISTMAS[0]);
+      allocateCycle(CYCLE_CHRISTMAS, rows);
+      break;
+    case FOUR_OF_JULY:
+      rows = sizeof(CYCLE_FOUR_OF_JULY) / sizeof(CYCLE_FOUR_OF_JULY[0]);
+      allocateCycle(CYCLE_FOUR_OF_JULY, rows);
+      break;
+    default:
+      rows = sizeof(CYCLE_FLASH) / sizeof(CYCLE_FLASH[0]);
+      allocateCycle(CYCLE_FLASH, rows);
+      break;
+  }
+  gflash_cycle.total_steps = rows;
+  gflash_cycle.count = effectParams[effect].falsh_count;
 }
 
 void deallocateCycle(uint8_t rows) {
@@ -245,34 +308,36 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   const uint8_t brightness = (uint8_t) doc["brightness"];
   const char *effect = doc["effect"];
   const uint8_t white = (uint8_t) doc["white_value"];
-
+  bool persist_change = true;
+  // Check State (ON-OFF)
   if (state != nullptr) {
     Serial.printf("State = %s\n", state);
     gstate = strcmp(state, STR_STATE_ON) == 0 ? STATE_ON : STATE_OFF;
   }
+
+  // Check Effect
   if (effect != nullptr) {
     Serial.printf("Effect = %s\n", effect);
     uint8_t tEffect = strEffectToInt(effect);
-    if (tEffect != FLASH) {
-      geffect = tEffect;
+    geffect = tEffect;
+    if (!isPersistentEffect(tEffect)) {
+      persist_change = false;
+    }
+    if (isFlashingEffect(tEffect)) {
+      Serial.println("Start Flashing...");
+      gflash = true;
+      buildEffect(tEffect);
+      flashStartTime = millis();
+    } else {
       if (gflash == true) {
         deallocateCycle(gflash_cycle.total_steps);
         gflash = false;
       }
-    }
-    if (geffect == PURE_WHITE) {
-      geffect = tEffect;
-      gred = 0;
-      ggreen = 0;
-      gblue = 0;
-    } else if (tEffect == FLASH) {
-      Serial.println("Start Flashing...");
-      gflash = true;
-      gflash_cycle.total_steps = sizeof(CYCLE_FLASH) / sizeof(CYCLE_FLASH[0]);
-      allocateCycle(CYCLE_FLASH, gflash_cycle.total_steps);
-      gflash_cycle.count = DEFAULT_FLASHING_COUNT;
-      Serial.printf("DEBUG: cycle[0][1] = %d, cycle[1][0] = %d", gflash_cycle.cycle[0][1], gflash_cycle.cycle[1][0]);
-      flashStartTime = millis();
+      if (tEffect == PURE_WHITE) {
+        gred = 0;
+        ggreen = 0;
+        gblue = 0;
+      }
     }
   }
   if (doc.containsKey("color") && geffect != PURE_WHITE) {
@@ -296,7 +361,9 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   mqttClient.publish(CONFIG_MQTT_TOPIC_STATE, buffer, true);
 
   somethingChanged = true;
-  saveToEEPROM();
+  if (persist_change) {
+    saveToEEPROM();
+  }
 }
 
 void displayGlobalParams() {

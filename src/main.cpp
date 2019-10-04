@@ -320,19 +320,22 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     Serial.printf("Effect = %s\n", effect);
     uint8_t tEffect = strEffectToInt(effect);
     geffect = tEffect;
+
     if (!isPersistentEffect(tEffect)) {
       persist_change = false;
     }
+
+    if (gflash == true) {
+      deallocateCycle(gflash_cycle.total_steps);
+      gflash = false;
+    }
+
     if (isFlashingEffect(tEffect)) {
       Serial.println("Start Flashing...");
       gflash = true;
       buildEffect(tEffect);
       flashStartTime = millis();
     } else {
-      if (gflash == true) {
-        deallocateCycle(gflash_cycle.total_steps);
-        gflash = false;
-      }
       if (tEffect == PURE_WHITE) {
         gred = 0;
         ggreen = 0;
@@ -355,6 +358,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     gwhite = white;
   }
 
+  // TODO: Report the actual state, not just back what we received.
   char buffer[measureJson(doc) + 1];
   serializeJson(doc, buffer, measureJson(doc) + 1);
 
@@ -484,10 +488,12 @@ void loop() {
   }
   mqttClient.loop();
 
+  // Apply color changes or produce flashing effects
   if (gflash == true) {
     if (gflash_cycle.count == 0) {
       deallocateCycle(gflash_cycle.total_steps);
       gflash =false;
+      restoreFromEEPROM();
       somethingChanged = true;
       Serial.println("Stop flashing...");
     } else {

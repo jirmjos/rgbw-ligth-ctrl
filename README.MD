@@ -1,11 +1,11 @@
 
 # RGBW LED Strip Control
 
-This project is aimed to control a RGBW LED strip using MQTT protocol.
+Control a RGBW LED strip using MQTT protocol.
 
 ## Features
 
-* MQTT enable: Subscribes to topic defined in config.h to set status, colors, brightness, and effects. The control also reports the status back by publishing the topic defined in config.h
+* MQTT enable: Subscribes to topic defined in config.h to set status, colors, brightness, and effects. The controller also reports the status back by publishing the topic defined in config.h
 
 * OTA: Over the air update is enabled by default.
 
@@ -21,7 +21,8 @@ This project is aimed to control a RGBW LED strip using MQTT protocol.
 
 ![RGBW Power Board Schemmatics](RGBWPower_schem.jpg)
 
-Notice J1 of the control boards must be connected one-to-one with J2 of the power boards.
+Notice J1 of the control board must be connected one-to-one with J2 of the power board.
+A 12V external power source is required. Amperage depends on the LED strip.
 
 ## MQTT
 
@@ -31,7 +32,7 @@ CONFIG_MQTT_TOPIC_SET is the topic the controller subscribes to in order to rece
 
 CONFIG_MQTT_TOPIC_STATE is the topic the controller publishes to report the current status of the RGBW LED strip. (This is still WIP)
 
-The payload is in JSON format is the same for both topics. All fields are optional.
+The payload is in JSON format and it is the same for both topics. All fields are optional.
 
     {
         "state": "ON" // or "OFF"
@@ -57,3 +58,5 @@ const char *SECRET_MQTT_USER = "mqtt-user-name";
 const char *SECRET_MQTT_PASS = "mqtt-user-password";
 
 const char *SECRET_MQTT_CLIENT_ID = "this-control-mqtt-client-id";
+
+Your MQTT brokers address shall be configured on config.h.

@@ -358,16 +358,16 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     gwhite = white;
   }
 
-  // TODO: Report the actual state, not just back what we received.
-  char buffer[measureJson(doc) + 1];
-  serializeJson(doc, buffer, measureJson(doc) + 1);
-
-  mqttClient.publish(CONFIG_MQTT_TOPIC_STATE, buffer, true);
-
-  somethingChanged = true;
   if (persist_change) {
+    // TODO: Report the actual state, not just back what we received.
+    char buffer[measureJson(doc) + 1];
+    serializeJson(doc, buffer, measureJson(doc) + 1);
+
+    mqttClient.publish(CONFIG_MQTT_TOPIC_STATE, buffer, true);
+
     saveToEEPROM();
   }
+  somethingChanged = true;
 }
 
 void displayGlobalParams() {
